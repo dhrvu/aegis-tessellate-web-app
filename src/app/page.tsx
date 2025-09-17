@@ -84,13 +84,32 @@ export default function Home() {
     }
   }
 
+  // Derive agent statuses for UI display
+  const agents = [
+    { id: 1, name: "Agent 1 — Lexical & Morph Diversifier" },
+    { id: 2, name: "Agent 2 — Syntactic Recombinator" },
+    { id: 3, name: "Agent 3 — Semantic Graph Engine" },
+    { id: 4, name: "Agent 4 — Stylometric Normalizer" },
+    { id: 5, name: "Agent 5 — Persona Emulator" },
+    { id: 6, name: "Agent 6 — Dynamic Obfuscation" },
+  ];
+
   return (
     <main className="min-h-dvh flex items-center justify-center p-6">
       <Card className="w-full max-w-2xl border-border">
         <CardHeader>
-          <CardTitle className="text-xl font-semibold tracking-tight">
-            Aegis-Tessellate Processor
-          </CardTitle>
+          <div className="flex items-center gap-3">
+            {/* App Icon placeholder (single image slot) */}
+            <div
+              aria-label="App icon placeholder"
+              className="size-10 rounded-md border border-border bg-muted/40 flex items-center justify-center text-xs text-muted-foreground"
+            >
+              Icon
+            </div>
+            <CardTitle className="text-xl font-semibold tracking-tight">
+              Aegis
+            </CardTitle>
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4" aria-describedby="form-help">
@@ -124,7 +143,7 @@ export default function Home() {
             </div>
 
             <div className="flex items-center gap-3">
-              <Button type="submit" disabled={disabled} aria-busy={busy}>
+              <Button type="submit" disabled={disabled} aria-busy={busy} aria-label="Process with Aegis multi-agent pipeline">
                 {busy ? "Processing…" : "Process"}
               </Button>
               {error && (
@@ -136,12 +155,29 @@ export default function Home() {
 
             <div className="space-y-2" aria-live="polite">
               <div className="flex items-center justify-between text-sm text-muted-foreground">
-                <span>Stage</span>
+                <span>Agent Pipeline</span>
                 <span className="font-medium">
                   {stage === "idle" ? "Idle" : stage.charAt(0).toUpperCase() + stage.slice(1)}
                 </span>
               </div>
               <Progress value={progress} className="h-2" />
+              {/* Agent list indicator (read-only) */}
+              {busy && (
+                <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs text-muted-foreground">
+                  {agents.map((a, idx) => (
+                    <li key={a.id} className="flex items-center gap-2">
+                      <span
+                        className={
+                          progress >= ((idx + 1) / agents.length) * 100
+                            ? "size-2.5 rounded-full bg-green-500"
+                            : "size-2.5 rounded-full bg-muted-foreground/40"
+                        }
+                      />
+                      <span>{a.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             <p id="form-help" className="text-xs text-muted-foreground">
