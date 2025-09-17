@@ -68,13 +68,13 @@ export default function Home() {
         const j = await res2.json().catch(() => ({}));
         throw new Error(j.error || "Processing failed");
       }
-      const { processedText, metrics, steps } = await res2.json();
+      const { processedText, metrics, steps, provenance, trust } = await res2.json();
       setProgress(100);
       setStage("done");
 
       sessionStorage.setItem(
         "aegis:last",
-        JSON.stringify({ originalText, processedText, metrics, steps, t: Date.now() })
+        JSON.stringify({ originalText, processedText, metrics, steps, provenance, trust, t: Date.now() })
       );
       router.push("/process");
     } catch (err: any) {
@@ -86,12 +86,16 @@ export default function Home() {
 
   // Derive agent statuses for UI display
   const agents = [
-    { id: 1, name: "Agent 1 — Lexical & Morph Diversifier" },
-    { id: 2, name: "Agent 2 — Syntactic Recombinator" },
-    { id: 3, name: "Agent 3 — Semantic Graph Engine" },
-    { id: 4, name: "Agent 4 — Stylometric Normalizer" },
-    { id: 5, name: "Agent 5 — Persona Emulator" },
-    { id: 6, name: "Agent 6 — Dynamic Obfuscation" },
+    { id: 1, name: "Agent 1 — Lexical Innovator" },
+    { id: 2, name: "Agent 2 — Syntactic Architect" },
+    { id: 3, name: "Agent 3 — Semantic Narrative Weaver" },
+    { id: 4, name: "Agent 4 — Stylometric Authenticator" },
+    { id: 5, name: "Agent 5 — Contextual Persona Sculptor" },
+    { id: 6, name: "Agent 6 — Dynamic Obfuscation Strategist" },
+    { id: 7, name: "Agent 7 — Provenance Embedder" },
+    { id: 8, name: "CHEC — Cognitive Human Emulation Core" },
+    { id: 9, name: "Trust Assurance Module" },
+    { id: 10, name: "Validation Agent" },
   ];
 
   return (

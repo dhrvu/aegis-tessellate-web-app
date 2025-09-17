@@ -19,6 +19,43 @@ function copyToClipboard(text: string) {
   return navigator.clipboard.writeText(text);
 }
 
+// Add: simple RTF generator for .doc downloads
+function downloadDoc(filename: string, text: string) {
+  const rtfEscape = (s: string) => s.replace(/\\/g, "\\\\").replace(/{/g, "\\{").replace(/}/g, "\\}").replace(/\n/g, "\\par ");
+  const rtf = `{\\rtf1\\ansi\\deff0\n{\\fonttbl{\\f0 Times New Roman;}}\n\\fs24 ${rtfEscape(text)}\n}`;
+  const blob = new Blob([rtf], { type: "application/msword" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename.endsWith(".doc") ? filename : `${filename}.doc`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Add: lightweight PDF generator using jsPDF (installed)
+async function downloadPdf(filename: string, text: string) {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const margin = 56; // 0.78in
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const usableWidth = pageWidth - margin * 2;
+  doc.setFont("times", "normal");
+  doc.setFontSize(12);
+  const lines = doc.splitTextToSize(text, usableWidth);
+  let y = margin;
+  const lineHeight = 16;
+  const pageHeight = doc.internal.pageSize.getHeight();
+  lines.forEach((line: string) => {
+    if (y + lineHeight > pageHeight - margin) {
+      doc.addPage();
+      y = margin;
+    }
+    doc.text(line, margin, y);
+    y += lineHeight;
+  });
+  doc.save(filename.endsWith(".pdf") ? filename : `${filename}.pdf`);
+}
+
 // --- Simple token-based diff (LCS) for demo purposes ---
 function tokenize(input: string): string[] {
   // keep words, punctuation, and whitespace tokens so spacing is preserved
@@ -61,7 +98,6 @@ function buildDiff(aStr: string, bStr: string) {
   const a = tokenize(aStr);
   const b = tokenize(bStr);
   const { seq } = lcs(a, b);
-  const same = new Set(seq.map((_, idx) => idx));
   // Reconstruct
   const left: { text: string; type: "same" | "removed" }[] = [];
   const right: { text: string; type: "same" | "added" }[] = [];
@@ -71,22 +107,18 @@ function buildDiff(aStr: string, bStr: string) {
   let k = 0;
   while (i < a.length || j < b.length) {
     if (i < a.length && j < b.length && k < seq.length && a[i] === b[j] && a[i] === seq[k]) {
-      // same token
       left.push({ text: a[i], type: "same" });
       right.push({ text: b[j], type: "same" });
       i++;
       j++;
       k++;
     } else if (j < b.length && (k >= seq.length || b[j] !== seq[k])) {
-      // token added in right
       right.push({ text: b[j], type: "added" });
       j++;
     } else if (i < a.length && (k >= seq.length || a[i] !== seq[k])) {
-      // token removed from left
       left.push({ text: a[i], type: "removed" });
       i++;
     } else {
-      // fallback to progress
       i++;
       j++;
       k++;
@@ -111,6 +143,8 @@ export default function ProcessPage() {
   const processedText = payload?.processedText || "";
   const metrics = payload?.metrics || null;
   const steps: string[] = payload?.steps || [];
+  const provenance = payload?.provenance || null;
+  const trust = payload?.trust || null;
 
   const sideBySide = useMemo(() => {
     return {
@@ -154,9 +188,23 @@ export default function ProcessPage() {
             <Button
               variant="secondary"
               onClick={() => download("processed.txt", processedText)}
-              aria-label="Download processed text"
+              aria-label="Download processed text as TXT"
             >
-              Download
+              TXT
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => downloadDoc("processed.doc", processedText)}
+              aria-label="Download processed text as DOC"
+            >
+              DOC
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => downloadPdf("processed.pdf", processedText)}
+              aria-label="Download processed text as PDF"
+            >
+              PDF
             </Button>
             <form
               onSubmit={async (e) => {
@@ -244,9 +292,33 @@ export default function ProcessPage() {
                   <div className="text-muted-foreground">Processed Words</div>
                   <div className="font-medium">{metrics.processedWords}</div>
                 </div>
+                {typeof metrics.originalityScore === "number" && (
+                  <div>
+                    <div className="text-muted-foreground">Originality Score</div>
+                    <div className="font-medium">{metrics.originalityScore.toFixed(1)}%</div>
+                  </div>
+                )}
+                {typeof metrics.detectionRisk === "number" && (
+                  <div>
+                    <div className="text-muted-foreground">Detection Risk</div>
+                    <div className="font-medium">{Math.round(metrics.detectionRisk * 100)}%</div>
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-muted-foreground">No metrics available.</p>
+            )}
+            {provenance && (
+              <div className="mt-4 text-xs text-muted-foreground">
+                <div>Provenance Hash: <span className="font-mono break-all">{provenance.changeHash}</span></div>
+                <div>Jaccard Overlap: {(provenance.jaccardOverlap * 100).toFixed(1)}%</div>
+              </div>
+            )}
+            {trust && !metrics && (
+              <div className="mt-4 text-xs text-muted-foreground">
+                <div>Originality Score: {trust.originalityScore?.toFixed?.(1)}%</div>
+                <div>Detection Risk: {Math.round((trust.detectionRisk ?? 0) * 100)}%</div>
+              </div>
             )}
             <Separator className="my-4" />
             <ol className="list-decimal pl-5 space-y-1 text-sm">
