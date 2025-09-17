@@ -11,12 +11,31 @@ function download(filename: string, text: string) {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
 
 function copyToClipboard(text: string) {
-  return navigator.clipboard.writeText(text);
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  // Fallback for sandboxed/HTTP contexts
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(ta);
+  }
+  return Promise.resolve();
 }
 
 // Add: simple RTF generator for .doc downloads
@@ -28,7 +47,10 @@ function downloadDoc(filename: string, text: string) {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename.endsWith(".doc") ? filename : `${filename}.doc`;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
 
@@ -41,18 +63,18 @@ async function downloadPdf(filename: string, text: string) {
   const usableWidth = pageWidth - margin * 2;
   doc.setFont("times", "normal");
   doc.setFontSize(12);
-  const lines = doc.splitTextToSize(text, usableWidth);
+  const lines = doc.splitTextToSize(text, usableWidth) as string[];
   let y = margin;
   const lineHeight = 16;
   const pageHeight = doc.internal.pageSize.getHeight();
-  lines.forEach((line: string) => {
+  for (const line of lines) {
     if (y + lineHeight > pageHeight - margin) {
       doc.addPage();
       y = margin;
     }
     doc.text(line, margin, y);
     y += lineHeight;
-  });
+  }
   doc.save(filename.endsWith(".pdf") ? filename : `${filename}.pdf`);
 }
 
@@ -180,12 +202,16 @@ export default function ProcessPage() {
           <h1 className="text-xl font-semibold">Processed Output</h1>
           <div className="flex gap-2">
             <Button
-              onClick={() => copyToClipboard(processedText)}
+              type="button"
+              onClick={async () => {
+                try { await copyToClipboard(processedText); } catch {}
+              }}
               aria-label="Copy processed text"
             >
               Copy
             </Button>
             <Button
+              type="button"
               variant="secondary"
               onClick={() => download("processed.txt", processedText)}
               aria-label="Download processed text as TXT"
@@ -193,6 +219,7 @@ export default function ProcessPage() {
               TXT
             </Button>
             <Button
+              type="button"
               variant="secondary"
               onClick={() => downloadDoc("processed.doc", processedText)}
               aria-label="Download processed text as DOC"
@@ -200,8 +227,9 @@ export default function ProcessPage() {
               DOC
             </Button>
             <Button
+              type="button"
               variant="secondary"
-              onClick={() => downloadPdf("processed.pdf", processedText)}
+              onClick={async () => { try { await downloadPdf("processed.pdf", processedText); } catch {} }}
               aria-label="Download processed text as PDF"
             >
               PDF
@@ -321,11 +349,24 @@ export default function ProcessPage() {
               </div>
             )}
             <Separator className="my-4" />
-            <ol className="list-decimal pl-5 space-y-1 text-sm">
-              {steps.map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ol>
+            {/* Render concise phrases with green dot icon */}
+            <ul className="space-y-1 text-sm">
+              {steps.map((s, i) => {
+                const afterDash = s.includes("—") ? s.split("—")[1]?.trim() : null;
+                const afterColon = !afterDash && s.includes(":") ? s.split(":")[1]?.trim() : null;
+                let phrase = (afterDash || afterColon || s).trim();
+                // Normalize some known verbose endings
+                if (/Trust/i.test(s)) phrase = "originality scoring & risk estimation";
+                if (/Validation/i.test(s)) phrase = "validation pass";
+                if (/CHEC/i.test(s)) phrase = "cognitive refinement";
+                return (
+                  <li key={i} className="flex items-center gap-2">
+                    <span className="size-2.5 rounded-full bg-green-500" />
+                    <span className="text-foreground/90">{phrase}</span>
+                  </li>
+                );
+              })}
+            </ul>
           </CardContent>
         </Card>
       </div>

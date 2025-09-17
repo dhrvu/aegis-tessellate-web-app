@@ -86,16 +86,16 @@ export default function Home() {
 
   // Derive agent statuses for UI display
   const agents = [
-    { id: 1, name: "Agent 1 — Lexical Innovator" },
-    { id: 2, name: "Agent 2 — Syntactic Architect" },
-    { id: 3, name: "Agent 3 — Semantic Narrative Weaver" },
-    { id: 4, name: "Agent 4 — Stylometric Authenticator" },
-    { id: 5, name: "Agent 5 — Contextual Persona Sculptor" },
-    { id: 6, name: "Agent 6 — Dynamic Obfuscation Strategist" },
-    { id: 7, name: "Agent 7 — Provenance Embedder" },
-    { id: 8, name: "CHEC — Cognitive Human Emulation Core" },
-    { id: 9, name: "Trust Assurance Module" },
-    { id: 10, name: "Validation Agent" },
+    { id: 1, name: "lexical expansion" },
+    { id: 2, name: "clause restructuring" },
+    { id: 3, name: "semantic reframing" },
+    { id: 4, name: "stylometric smoothing" },
+    { id: 5, name: "persona alignment" },
+    { id: 6, name: "contextual obfuscation" },
+    { id: 7, name: "provenance embed" },
+    { id: 8, name: "cognitive refinement" },
+    { id: 9, name: "originality scoring" },
+    { id: 10, name: "validation pass" },
   ];
 
   return (
