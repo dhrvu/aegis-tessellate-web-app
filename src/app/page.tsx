@@ -48,17 +48,41 @@ export default function Home() {
         fd.append("file", file!);
         const res = await fetch("/api/upload", { method: "POST", body: fd });
         const bodyText = await res.text();
-        // Parse JSON robustly (avoid double-consume and handle stray chars)
+        // Parse JSON robustly: extract the first balanced JSON object/array even with leading/trailing noise
         const safeParse = (t: string) => {
-          try {
-            return JSON.parse(t);
-          } catch {
-            const i = Math.max(t.lastIndexOf("}"), t.lastIndexOf("]"));
-            if (i !== -1) {
-              try { return JSON.parse(t.slice(0, i + 1)); } catch {}
+          const startIdx = (() => {
+            const a = t.indexOf("{");
+            const b = t.indexOf("[");
+            if (a === -1 && b === -1) return -1;
+            if (a === -1) return b;
+            if (b === -1) return a;
+            return Math.min(a, b);
+          })();
+          if (startIdx === -1) return null;
+          const open = t[startIdx];
+          const close = open === "{" ? "}" : "]";
+          let depth = 0;
+          let inStr = false;
+          let esc = false;
+          for (let i = startIdx; i < t.length; i++) {
+            const ch = t[i];
+            if (inStr) {
+              if (esc) esc = false;
+              else if (ch === "\\") esc = true;
+              else if (ch === '"') inStr = false;
+            } else {
+              if (ch === '"') inStr = true;
+              else if (ch === open) depth++;
+              else if (ch === close) {
+                depth--;
+                if (depth === 0) {
+                  const slice = t.slice(startIdx, i + 1);
+                  try { return JSON.parse(slice); } catch { return null; }
+                }
+              }
             }
-            return null;
           }
+          return null;
         };
         const parsed = safeParse(bodyText);
         if (!res.ok) {
@@ -77,28 +101,100 @@ export default function Home() {
       setProgress(65);
       const res2 = await fetch("/api/process", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ text: originalText }),
+        cache: "no-store",
       });
-      const body2 = await res2.text();
+      const res2Clone = res2.clone();
+      const bodyPreview = await res2Clone.text().catch(() => "");
       const safeParse2 = (t: string) => {
+        // Try normal parse
         try {
-          return JSON.parse(t);
-        } catch {
-          const i = Math.max(t.lastIndexOf("}"), t.lastIndexOf("]"));
-          if (i !== -1) {
-            try { return JSON.parse(t.slice(0, i + 1)); } catch {}
+          const first = JSON.parse(t);
+          // If server returned a JSON-encoded string, parse it again
+          if (typeof first === "string") {
+            try {
+              const second = JSON.parse(first);
+              return second;
+            } catch {
+              // fallthrough
+            }
           }
-          return null;
+          return first;
+        } catch {}
+        // Fallback: find first balanced JSON object/array
+        const startIdx = (() => {
+          const a = t.indexOf("{");
+          const b = t.indexOf("[");
+          if (a === -1 && b === -1) return -1;
+          if (a === -1) return b;
+          if (b === -1) return a;
+          return Math.min(a, b);
+        })();
+        if (startIdx === -1) return null;
+        const open = t[startIdx];
+        const close = open === "{" ? "}" : "]";
+        let depth = 0;
+        let inStr = false;
+        let esc = false;
+        for (let i = startIdx; i < t.length; i++) {
+          const ch = t[i];
+          if (inStr) {
+            if (esc) esc = false;
+            else if (ch === "\\") esc = true;
+            else if (ch === '"') inStr = false;
+          } else {
+            if (ch === '"') inStr = true;
+            else if (ch === open) depth++;
+            else if (ch === close) {
+              depth--;
+              if (depth === 0) {
+                const slice = t.slice(startIdx, i + 1);
+                try {
+                  const first = JSON.parse(slice);
+                  if (typeof first === "string") {
+                    try { return JSON.parse(first); } catch { return null; }
+                  }
+                  return first;
+                } catch { return null; }
+              }
+            }
+          }
         }
+        return null;
       };
-      const parsed2 = safeParse2(body2);
-      if (!res2.ok) {
-        const msg = parsed2?.error || "Processing failed";
+      let parsed2: any = null;
+      if (res2.ok) {
+        // Prefer JSON for successful responses
+        try {
+          parsed2 = await res2.json();
+          if (typeof parsed2 === "string") {
+            // Handle double-encoded JSON
+            try { parsed2 = JSON.parse(parsed2); } catch {}
+          }
+        } catch {
+          parsed2 = safeParse2(bodyPreview);
+        }
+        if (!parsed2) {
+          console.debug("/api/process OK but could not parse JSON", {
+            status: res2.status,
+            contentType: res2.headers.get("content-type"),
+            bodySample: bodyPreview.slice(0, 200),
+          });
+          throw new Error("Processing returned invalid JSON");
+        }
+      } else {
+        // Error responses: try to extract { error }
+        try {
+          parsed2 = await res2.json();
+          if (typeof parsed2 === "string") {
+            try { parsed2 = JSON.parse(parsed2); } catch {}
+          }
+        } catch {
+          parsed2 = safeParse2(bodyPreview);
+        }
+        const msg = parsed2?.error || `Processing failed (${res2.status})`;
         throw new Error(msg);
-      }
-      if (!parsed2) {
-        throw new Error("Processing returned invalid JSON");
       }
       const { processedText, metrics, steps, provenance, trust } = parsed2 as any;
       setProgress(100);
