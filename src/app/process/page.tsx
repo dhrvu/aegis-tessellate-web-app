@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -151,6 +151,14 @@ function buildDiff(aStr: string, bStr: string) {
 
 export default function ProcessPage() {
   const [payload, setPayload] = useState<any | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState<null | "txt" | "doc" | "pdf" >(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [showChanges, setShowChanges] = useState(false);
+  const [syncScroll, setSyncScroll] = useState(true);
+  const leftRef = useRef<HTMLDivElement | null>(null);
+  const rightRef = useRef<HTMLDivElement | null>(null);
+  const syncingRef = useRef<null | "left" | "right">(null);
 
   useEffect(() => {
     const raw = sessionStorage.getItem("aegis:last");
@@ -159,6 +167,52 @@ export default function ProcessPage() {
         setPayload(JSON.parse(raw));
       } catch {}
     }
+  }, []);
+
+  // Keyboard shortcuts: ⌘/Ctrl+C (copy), ⌘/Ctrl+⇧+T/D/P (downloads)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const isMeta = e.metaKey || e.ctrlKey;
+      if (!isMeta) return;
+      // Copy: Cmd/Ctrl + C
+      if (!e.shiftKey && (e.key === "c" || e.key === "C")) {
+        e.preventDefault();
+        copyToClipboard(processedText)
+          .then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          })
+          .catch(() => {});
+        return;
+      }
+      // Downloads with Shift
+      if (e.shiftKey) {
+        if (e.key.toLowerCase() === "t") {
+          e.preventDefault();
+          setBusy("txt");
+          try { download("processed.txt", processedText); setActionMsg("Saved TXT"); } finally {
+            setBusy(null); setTimeout(() => setActionMsg(null), 1500);
+          }
+        } else if (e.key.toLowerCase() === "d") {
+          e.preventDefault();
+          setBusy("doc");
+          try { downloadDoc("processed.doc", processedText); setActionMsg("Saved DOC"); } finally {
+            setBusy(null); setTimeout(() => setActionMsg(null), 1500);
+          }
+        } else if (e.key.toLowerCase() === "p") {
+          e.preventDefault();
+          (async () => {
+            setBusy("pdf");
+            try { await downloadPdf("processed.pdf", processedText); setActionMsg("Saved PDF"); } finally {
+              setBusy(null); setTimeout(() => setActionMsg(null), 1500);
+            }
+          })();
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const originalText = payload?.originalText || "";
@@ -176,6 +230,42 @@ export default function ProcessPage() {
   }, [originalText, processedText]);
 
   const diff = useMemo(() => buildDiff(sideBySide.left, sideBySide.right), [sideBySide]);
+
+  // Scroll sync handlers
+  function handleScrollLeft() {
+    if (!syncScroll || syncingRef.current === "right") return;
+    const l = leftRef.current;
+    const r = rightRef.current;
+    if (!l || !r) return;
+    syncingRef.current = "left";
+    const ratio = l.scrollTop / (l.scrollHeight - l.clientHeight || 1);
+    r.scrollTop = ratio * (r.scrollHeight - r.clientHeight);
+    syncingRef.current = null;
+  }
+  function handleScrollRight() {
+    if (!syncScroll || syncingRef.current === "left") return;
+    const l = leftRef.current;
+    const r = rightRef.current;
+    if (!l || !r) return;
+    syncingRef.current = "right";
+    const ratio = r.scrollTop / (r.scrollHeight - r.clientHeight || 1);
+    l.scrollTop = ratio * (l.scrollHeight - l.clientHeight);
+    syncingRef.current = null;
+  }
+  function scrollToFirstChange() {
+    const target = rightRef.current?.querySelector('[data-change="added"]') as HTMLElement | null
+      || leftRef.current?.querySelector('[data-change="removed"]') as HTMLElement | null;
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  function selectProcessed() {
+    const el = rightRef.current;
+    if (!el) return;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }
 
   if (!payload) {
     return (
@@ -200,40 +290,92 @@ export default function ProcessPage() {
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold">Processed Output</h1>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <Button
               type="button"
               onClick={async () => {
-                try { await copyToClipboard(processedText); } catch {}
+                try {
+                  await copyToClipboard(processedText);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                } catch {}
               }}
               aria-label="Copy processed text"
+              title="Copy (⌘/Ctrl+C)"
             >
               Copy
             </Button>
+            {copied && (
+              <span
+                className="text-xs text-green-600 animate-in fade-in-50"
+                aria-live="polite"
+              >
+                Copied!
+              </span>
+            )}
             <Button
               type="button"
               variant="secondary"
-              onClick={() => download("processed.txt", processedText)}
+              disabled={busy !== null}
+              onClick={() => {
+                setBusy("txt");
+                try { download("processed.txt", processedText); setActionMsg("Saved TXT"); } finally {
+                  setBusy(null);
+                  setTimeout(() => setActionMsg(null), 1500);
+                }
+              }}
               aria-label="Download processed text as TXT"
+              title="Download TXT (⇧+⌘/Ctrl+T)"
             >
-              TXT
+              {busy === "txt" ? (
+                <span className="inline-block size-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                "TXT"
+              )}
             </Button>
             <Button
               type="button"
               variant="secondary"
-              onClick={() => downloadDoc("processed.doc", processedText)}
+              disabled={busy !== null}
+              onClick={() => {
+                setBusy("doc");
+                try { downloadDoc("processed.doc", processedText); setActionMsg("Saved DOC"); } finally {
+                  setBusy(null);
+                  setTimeout(() => setActionMsg(null), 1500);
+                }
+              }}
               aria-label="Download processed text as DOC"
+              title="Download DOC (⇧+⌘/Ctrl+D)"
             >
-              DOC
+              {busy === "doc" ? (
+                <span className="inline-block size-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                "DOC"
+              )}
             </Button>
             <Button
               type="button"
               variant="secondary"
-              onClick={async () => { try { await downloadPdf("processed.pdf", processedText); } catch {} }}
+              disabled={busy !== null}
+              onClick={async () => {
+                setBusy("pdf");
+                try { await downloadPdf("processed.pdf", processedText); setActionMsg("Saved PDF"); } finally {
+                  setBusy(null);
+                  setTimeout(() => setActionMsg(null), 1500);
+                }
+              }}
               aria-label="Download processed text as PDF"
+              title="Download PDF (⇧+⌘/Ctrl+P)"
             >
-              PDF
+              {busy === "pdf" ? (
+                <span className="inline-block size-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                "PDF"
+              )}
             </Button>
+            {actionMsg && (
+              <span className="text-xs text-muted-foreground ml-1" aria-live="polite">{actionMsg}</span>
+            )}
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -247,45 +389,81 @@ export default function ProcessPage() {
                 }
               }}
             >
-              <Button type="submit" variant="outline">Send to HITL Queue</Button>
+              <Button type="submit" variant="outline" title="Send to Human-in-the-loop queue">Send to HITL Queue</Button>
             </form>
           </div>
         </div>
 
         <Card>
           <CardContent className="p-0">
+            {/* Diff toolbar */}
+            <div className="flex items-center justify-between px-4 py-2 border-b">
+              <div className="flex items-center gap-2 text-xs">
+                <Button variant="ghost" size="sm" type="button" onClick={() => setShowChanges(v => !v)} title="Toggle: show only changes">
+                  {showChanges ? "Show all" : "Show changes"}
+                </Button>
+                <Button variant="ghost" size="sm" type="button" onClick={() => setSyncScroll(v => !v)} title="Toggle scroll sync">
+                  {syncScroll ? "Unsync scroll" : "Sync scroll"}
+                </Button>
+                <Button variant="ghost" size="sm" type="button" onClick={scrollToFirstChange} title="Jump to first change">
+                  Jump to change
+                </Button>
+                <Button variant="ghost" size="sm" type="button" onClick={selectProcessed} title="Select processed pane">
+                  Select processed
+                </Button>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {processedText.split(/\s+/).filter(Boolean).length} words
+              </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x">
               <section className="p-4">
                 <h2 className="font-medium mb-2">Original</h2>
-                <div className="whitespace-pre-wrap text-sm leading-6">
+                <div
+                  ref={leftRef}
+                  onScroll={handleScrollLeft}
+                  className="whitespace-pre-wrap text-sm leading-6 max-h-[60dvh] overflow-auto"
+                  aria-label="Original text with removed highlights"
+                >
                   {diff.left.map((seg, idx) => (
-                    <span
-                      key={idx}
-                      className={
-                        seg.type === "removed"
-                          ? "bg-red-100 text-red-900 rounded-sm"
-                          : undefined
-                      }
-                    >
-                      {seg.text}
-                    </span>
+                    (showChanges && seg.type !== "removed") ? null : (
+                      <span
+                        key={idx}
+                        className={
+                          seg.type === "removed"
+                            ? "bg-red-100 text-red-900 rounded-sm"
+                            : undefined
+                        }
+                        data-change={seg.type === "removed" ? "removed" : undefined}
+                      >
+                        {seg.text}
+                      </span>
+                    )
                   ))}
                 </div>
               </section>
               <section className="p-4 bg-secondary/60">
                 <h2 className="font-medium mb-2">Processed</h2>
-                <div className="whitespace-pre-wrap text-sm leading-6">
+                <div
+                  ref={rightRef}
+                  onScroll={handleScrollRight}
+                  className="whitespace-pre-wrap text-sm leading-6 max-h-[60dvh] overflow-auto"
+                  aria-label="Processed text with added highlights"
+                >
                   {diff.right.map((seg, idx) => (
-                    <span
-                      key={idx}
-                      className={
-                        seg.type === "added"
-                          ? "bg-blue-100 text-blue-900 rounded-sm"
-                          : undefined
-                      }
-                    >
-                      {seg.text}
-                    </span>
+                    (showChanges && seg.type !== "added") ? null : (
+                      <span
+                        key={idx}
+                        className={
+                          seg.type === "added"
+                            ? "bg-blue-100 text-blue-900 rounded-sm"
+                            : undefined
+                        }
+                        data-change={seg.type === "added" ? "added" : undefined}
+                      >
+                        {seg.text}
+                      </span>
+                    )
                   ))}
                 </div>
               </section>
