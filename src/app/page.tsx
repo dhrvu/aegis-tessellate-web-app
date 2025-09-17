@@ -47,14 +47,30 @@ export default function Home() {
         const fd = new FormData();
         fd.append("file", file!);
         const res = await fetch("/api/upload", { method: "POST", body: fd });
+        const bodyText = await res.text();
+        // Parse JSON robustly (avoid double-consume and handle stray chars)
+        const safeParse = (t: string) => {
+          try {
+            return JSON.parse(t);
+          } catch {
+            const i = Math.max(t.lastIndexOf("}"), t.lastIndexOf("]"));
+            if (i !== -1) {
+              try { return JSON.parse(t.slice(0, i + 1)); } catch {}
+            }
+            return null;
+          }
+        };
+        const parsed = safeParse(bodyText);
         if (!res.ok) {
-          const j = await res.json().catch(() => ({}));
-          throw new Error(j.error || "Upload failed");
+          const msg = parsed?.error || "Upload failed";
+          throw new Error(msg);
+        }
+        if (!parsed) {
+          throw new Error("Upload returned invalid JSON");
         }
         setStage("extracting");
         setProgress(45);
-        const data = await res.json();
-        originalText = data.text as string;
+        originalText = parsed.text as string;
       }
 
       setStage("processing");
@@ -64,11 +80,27 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: originalText }),
       });
+      const body2 = await res2.text();
+      const safeParse2 = (t: string) => {
+        try {
+          return JSON.parse(t);
+        } catch {
+          const i = Math.max(t.lastIndexOf("}"), t.lastIndexOf("]"));
+          if (i !== -1) {
+            try { return JSON.parse(t.slice(0, i + 1)); } catch {}
+          }
+          return null;
+        }
+      };
+      const parsed2 = safeParse2(body2);
       if (!res2.ok) {
-        const j = await res2.json().catch(() => ({}));
-        throw new Error(j.error || "Processing failed");
+        const msg = parsed2?.error || "Processing failed";
+        throw new Error(msg);
       }
-      const { processedText, metrics, steps, provenance, trust } = await res2.json();
+      if (!parsed2) {
+        throw new Error("Processing returned invalid JSON");
+      }
+      const { processedText, metrics, steps, provenance, trust } = parsed2 as any;
       setProgress(100);
       setStage("done");
 
