@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -61,7 +61,7 @@ async function downloadPdf(filename: string, text: string) {
   const margin = 56; // 0.78in
   const pageWidth = doc.internal.pageSize.getWidth();
   const usableWidth = pageWidth - margin * 2;
-  doc.setFont("times", "normal");
+  doc.setFont("helvetica", "normal"); // Use standard font
   doc.setFontSize(12);
   const lines = doc.splitTextToSize(text, usableWidth) as string[];
   let y = margin;
@@ -75,7 +75,15 @@ async function downloadPdf(filename: string, text: string) {
     doc.text(line, margin, y);
     y += lineHeight;
   }
-  doc.save(filename.endsWith(".pdf") ? filename : `${filename}.pdf`);
+  // Use output('bloburl') for better compatibility
+  const pdfOutput = doc.output('bloburl');
+  const a = document.createElement("a");
+  a.href = pdfOutput;
+  a.download = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 // --- Simple token-based diff (LCS) for demo purposes ---
@@ -172,58 +180,61 @@ export default function ProcessPage() {
     setLoading(false);
   }, []);
 
-  // Keyboard shortcuts: ⌘/Ctrl+C (copy), ⌘/Ctrl+⇧+T/D/P (downloads)
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const isMeta = e.metaKey || e.ctrlKey;
-      if (!isMeta) return;
-      // Copy: Cmd/Ctrl + C
-      if (!e.shiftKey && (e.key === "c" || e.key === "C")) {
-        e.preventDefault();
-        copyToClipboard(processedText)
-          .then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          })
-          .catch(() => {});
-        return;
-      }
-      // Downloads with Shift
-      if (e.shiftKey) {
-        if (e.key.toLowerCase() === "t") {
-          e.preventDefault();
-          setBusy("txt");
-          try { download("processed.txt", processedText); setActionMsg("Saved TXT"); } finally {
-            setBusy(null); setTimeout(() => setActionMsg(null), 1500);
-          }
-        } else if (e.key.toLowerCase() === "d") {
-          e.preventDefault();
-          setBusy("doc");
-          try { downloadDoc("processed.doc", processedText); setActionMsg("Saved DOC"); } finally {
-            setBusy(null); setTimeout(() => setActionMsg(null), 1500);
-          }
-        } else if (e.key.toLowerCase() === "p") {
-          e.preventDefault();
-          (async () => {
-            setBusy("pdf");
-            try { await downloadPdf("processed.pdf", processedText); setActionMsg("Saved PDF"); } finally {
-              setBusy(null); setTimeout(() => setActionMsg(null), 1500);
-            }
-          })();
-        }
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const originalText = payload?.originalText || "";
   const processedText = payload?.processedText || "";
   const metrics = payload?.metrics || null;
   const steps: string[] = payload?.steps || [];
   const provenance = payload?.provenance || null;
   const trust = payload?.trust || null;
+
+  // Keyboard shortcuts: ⌘/Ctrl+C (copy), ⌘/Ctrl+⇧+T/D/P (downloads)
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    const isMeta = e.metaKey || e.ctrlKey;
+    if (!isMeta) return;
+    // Copy: Cmd/Ctrl + C
+    if (!e.shiftKey && (e.key === "c" || e.key === "C")) {
+      e.preventDefault();
+      copyToClipboard(processedText)
+        .then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        })
+        .catch(() => {});
+      return;
+    }
+    // Downloads with Shift
+    if (e.shiftKey) {
+      if (e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        if (!processedText) return;
+        setBusy("txt");
+        try { download("processed.txt", processedText); setActionMsg("Saved TXT"); } finally {
+          setBusy(null); setTimeout(() => setActionMsg(null), 1500);
+        }
+      } else if (e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        if (!processedText) return;
+        setBusy("doc");
+        try { downloadDoc("processed.doc", processedText); setActionMsg("Saved DOC"); } finally {
+          setBusy(null); setTimeout(() => setActionMsg(null), 1500);
+        }
+      } else if (e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        if (!processedText) return;
+        (async () => {
+          setBusy("pdf");
+          try { await downloadPdf("processed.pdf", processedText); setActionMsg("Saved PDF"); } finally {
+            setBusy(null); setTimeout(() => setActionMsg(null), 1500);
+          }
+        })();
+      }
+    }
+  }, [processedText]);
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
 
   const sideBySide = useMemo(() => {
     return {
@@ -312,11 +323,19 @@ export default function ProcessPage() {
             <Button
               type="button"
               onClick={async () => {
+                if (!processedText) {
+                  setActionMsg("No text to copy");
+                  setTimeout(() => setActionMsg(null), 1500);
+                  return;
+                }
                 try {
                   await copyToClipboard(processedText);
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1500);
-                } catch {}
+                } catch {
+                  setActionMsg("Copy failed");
+                  setTimeout(() => setActionMsg(null), 1500);
+                }
               }}
               aria-label="Copy processed text"
               title="Copy (⌘/Ctrl+C)"
@@ -334,10 +353,17 @@ export default function ProcessPage() {
             <Button
               type="button"
               variant="secondary"
-              disabled={busy !== null}
+              disabled={busy !== null || !processedText}
               onClick={() => {
+                if (!processedText) {
+                  setActionMsg("No text to download");
+                  setTimeout(() => setActionMsg(null), 1500);
+                  return;
+                }
                 setBusy("txt");
-                try { download("processed.txt", processedText); setActionMsg("Saved TXT"); } finally {
+                try { download("processed.txt", processedText); setActionMsg("Saved TXT"); } catch {
+                  setActionMsg("Download failed");
+                } finally {
                   setBusy(null);
                   setTimeout(() => setActionMsg(null), 1500);
                 }
@@ -354,10 +380,17 @@ export default function ProcessPage() {
             <Button
               type="button"
               variant="secondary"
-              disabled={busy !== null}
+              disabled={busy !== null || !processedText}
               onClick={() => {
+                if (!processedText) {
+                  setActionMsg("No text to download");
+                  setTimeout(() => setActionMsg(null), 1500);
+                  return;
+                }
                 setBusy("doc");
-                try { downloadDoc("processed.doc", processedText); setActionMsg("Saved DOC"); } finally {
+                try { downloadDoc("processed.doc", processedText); setActionMsg("Saved DOC"); } catch {
+                  setActionMsg("Download failed");
+                } finally {
                   setBusy(null);
                   setTimeout(() => setActionMsg(null), 1500);
                 }
@@ -374,10 +407,17 @@ export default function ProcessPage() {
             <Button
               type="button"
               variant="secondary"
-              disabled={busy !== null}
+              disabled={busy !== null || !processedText}
               onClick={async () => {
+                if (!processedText) {
+                  setActionMsg("No text to download");
+                  setTimeout(() => setActionMsg(null), 1500);
+                  return;
+                }
                 setBusy("pdf");
-                try { await downloadPdf("processed.pdf", processedText); setActionMsg("Saved PDF"); } finally {
+                try { await downloadPdf("processed.pdf", processedText); setActionMsg("Saved PDF"); } catch {
+                  setActionMsg("Download failed");
+                } finally {
                   setBusy(null);
                   setTimeout(() => setActionMsg(null), 1500);
                 }
