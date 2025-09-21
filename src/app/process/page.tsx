@@ -156,6 +156,7 @@ export default function ProcessPage() {
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [showChanges, setShowChanges] = useState(false);
   const [syncScroll, setSyncScroll] = useState(true);
+  const [loading, setLoading] = useState(true);
   const leftRef = useRef<HTMLDivElement | null>(null);
   const rightRef = useRef<HTMLDivElement | null>(null);
   const syncingRef = useRef<null | "left" | "right">(null);
@@ -164,9 +165,11 @@ export default function ProcessPage() {
     const raw = sessionStorage.getItem("aegis:last");
     if (raw) {
       try {
-        setPayload(JSON.parse(raw));
+        const parsed = JSON.parse(raw);
+        setPayload(parsed);
       } catch {}
     }
+    setLoading(false);
   }, []);
 
   // Keyboard shortcuts: ⌘/Ctrl+C (copy), ⌘/Ctrl+⇧+T/D/P (downloads)
@@ -267,7 +270,7 @@ export default function ProcessPage() {
     sel?.addRange(range);
   }
 
-  if (!payload) {
+  if (!payload && !loading) {
     return (
       <main className="min-h-dvh flex items-center justify-center p-6">
         <Card className="w-full max-w-3xl">
@@ -279,6 +282,21 @@ export default function ProcessPage() {
             <div className="mt-4">
               <a className="underline" href="/">Return home</a>
             </div>
+          </CardContent>
+        </Card>
+      </main>
+    );
+  }
+
+  if (loading) {
+    return (
+      <main className="min-h-dvh flex items-center justify-center p-6">
+        <Card className="w-full max-w-3xl">
+          <CardHeader>
+            <CardTitle>Loading...</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center justify-center py-8">
+            <div className="inline-block size-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </CardContent>
         </Card>
       </main>
