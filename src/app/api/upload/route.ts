@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import * as pdfjs from "pdfjs-dist/legacy/build/pdf";
+import pdf from "pdf-parse";
 
-export const runtime = "nodejs"; // ensure Node APIs
-
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+export const runtime = "nodejs";
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5MB
 
@@ -23,24 +21,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "File too large. Max 5MB." }, { status: 413 });
     }
 
-    const ab = await file.arrayBuffer();
-    const buf = new Uint8Array(ab);
+    const buffer = Buffer.from(await file.arrayBuffer());
 
-    const document = await pdfjs.getDocument({ data: buf }).promise;
-    let fullText = "";
+    const data = await pdf(buffer);
 
-    for (let i = 1; i <= document.numPages; i++) {
-      const page = await document.getPage(i);
-      const content = await page.getTextContent();
-      const pageText = content.items
-        .map((item: any) => item.str)
-        .join(" ");
-      fullText += pageText + "\n";
-    }
+    let rawText = data.text || "";
 
-    const rawText = fullText.trim();
-
-    if (!rawText) {
+    if (!rawText.trim()) {
       return NextResponse.json({ error: "No extractable text in PDF." }, { status: 422 });
     }
 
@@ -49,12 +36,13 @@ export async function POST(req: Request) {
     return NextResponse.json({
       text,
       meta: {
-        pages: document.numPages,
+        pages: data.numpages || 1,
         size: file.size,
         name: file.name,
       },
     });
   } catch (e: any) {
+    console.error("PDF parse error:", e);
     return NextResponse.json({ error: "Failed to parse PDF." }, { status: 500 });
   }
 }
