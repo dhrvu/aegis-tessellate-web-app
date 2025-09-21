@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
-import { PassThrough } from "stream";
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,25 +9,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No text provided" }, { status: 400 });
     }
 
-    const doc = new PDFDocument({ margin: 50 });
-    const passThrough = new PassThrough();
-    doc.pipe(passThrough);
+    // Generate PDF buffer using Promise to wait for 'end'
+    const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
+      const doc = new PDFDocument({ margin: 50 });
+      const buffers: Buffer[] = [];
 
-    doc.fontSize(12).text(text, { width: 500, align: "left" });
-    doc.end();
+      doc.on("data", (chunk) => buffers.push(chunk));
+      doc.on("end", () => {
+        const pdfData = Buffer.concat(buffers);
+        resolve(pdfData);
+      });
+      doc.on("error", reject);
 
-    passThrough.on("end", () => passThrough.destroy());
-    passThrough.on("error", (err) => {
-      console.error("Stream error:", err);
-      passThrough.destroy(err);
+      // Add text content
+      doc.fontSize(12).text(text, { width: 500, align: "left" });
+      doc.end();
     });
 
-    return new NextResponse(passThrough, {
+    return new NextResponse(pdfBuffer, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": 'attachment; filename="processed.pdf"',
-        "Content-Length": "0", // Stream handles dynamic length
+        "Content-Disposition": `attachment; filename="processed.pdf"`,
+        "Content-Length": pdfBuffer.length.toString(),
       },
     });
   } catch (error) {

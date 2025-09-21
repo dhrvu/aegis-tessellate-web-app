@@ -57,24 +57,34 @@ function downloadDoc(filename: string, text: string) {
 // Add: lightweight PDF generator using jsPDF (installed)
 async function downloadPdf(filename: string, text: string) {
   try {
-    const response = await fetch("/api/download-pdf", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    if (!response.ok) throw new Error("API error");
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF();
+    
+    // Split text into lines for better fitting
+    const lines = doc.splitTextToSize(text, 180);
+    doc.text(lines, 10, 10);
+    
+    const dataUrl = doc.output('datauristring');
+    
+    // Use window.open to trigger download in restricted environments
+    const popup = window.open(dataUrl, '_blank');
+    if (popup) {
+      // Optionally, set a timeout to close if it's a download prompt
+      setTimeout(() => popup.close(), 1000);
+    } else {
+      // Fallback to link method if popups blocked
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
   } catch (error) {
-    console.error("Download failed:", error);
-    throw error;
+    console.error("PDF generation failed:", error);
+    // Fallback message or simple text save
+    throw new Error("PDF download unavailable - try TXT or DOC");
   }
 }
 
