@@ -1,9 +1,5 @@
 import { NextResponse } from "next/server";
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.js"; // Legacy build for Node.js compatibility
-import fs from "fs/promises";
-import path from "path";
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = path.join(process.cwd(), "node_modules/pdfjs-dist/legacy/build/pdf.worker.js"); // Set worker path for Node.js
+import pdfParse from "pdf-parse";
 
 export const runtime = "nodejs";
 
@@ -34,22 +30,8 @@ export async function POST(req: Request) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // Write buffer to temp file (required for pdfjs in Node.js without legacy build issues)
-    const tempPath = path.join(process.cwd(), `temp-${Date.now()}.pdf`);
-    await fs.writeFile(tempPath, buffer);
-
-    const loadingTask = pdfjsLib.getDocument(tempPath);
-    const pdf = await loadingTask.promise;
-    let rawText = "";
-
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      rawText += content.items.map((item: any) => item.str).join(" ") + "\n";
-    }
-
-    // Clean up temp file
-    await fs.unlink(tempPath);
+    const data = await pdfParse(buffer);
+    let rawText = data.text;
 
     if (!rawText.trim()) {
       return NextResponse.json({ error: "No extractable text in PDF." }, { status: 422 });
@@ -60,7 +42,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       text,
       meta: {
-        pages: pdf.numPages || 1,
+        pages: data.numpages || 1,
         size: file.size,
         name: file.name,
       },
