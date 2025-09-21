@@ -13,7 +13,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No file provided." }, { status: 400 });
     }
 
-    if (file.type !== "application/pdf") {
+    // Relax MIME checks to accommodate browsers that omit or vary the type
+    const mime = (file.type || "").toLowerCase();
+    const name = (file.name || "").toLowerCase();
+    const looksPdf =
+      mime === "application/pdf" ||
+      mime === "application/x-pdf" ||
+      name.endsWith(".pdf");
+    if (!looksPdf) {
       return NextResponse.json({ error: "Only PDF files are allowed." }, { status: 415 });
     }
 
