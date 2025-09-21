@@ -56,34 +56,26 @@ function downloadDoc(filename: string, text: string) {
 
 // Add: lightweight PDF generator using jsPDF (installed)
 async function downloadPdf(filename: string, text: string) {
-  const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const margin = 56; // 0.78in
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const usableWidth = pageWidth - margin * 2;
-  doc.setFont("helvetica", "normal"); // Use standard font
-  doc.setFontSize(12);
-  const lines = doc.splitTextToSize(text, usableWidth) as string[];
-  let y = margin;
-  const lineHeight = 16;
-  const pageHeight = doc.internal.pageSize.getHeight();
-  for (const line of lines) {
-    if (y + lineHeight > pageHeight - margin) {
-      doc.addPage();
-      y = margin;
-    }
-    doc.text(line, margin, y);
-    y += lineHeight;
+  try {
+    const response = await fetch("/api/download-pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!response.ok) throw new Error("API error");
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error("Download failed:", error);
+    throw error;
   }
-  // Use output('bloburl') for better compatibility
-  const pdfOutput = doc.output('bloburl');
-  const a = document.createElement("a");
-  a.href = pdfOutput;
-  a.download = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
 }
 
 // --- Simple token-based diff (LCS) for demo purposes ---
