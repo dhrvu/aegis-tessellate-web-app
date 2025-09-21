@@ -86,11 +86,11 @@ export default function Home() {
         };
         const parsed = safeParse(bodyText);
         if (!res.ok) {
-          const msg = parsed?.error || "Upload failed";
+          const msg = parsed?.error || `Upload failed (${res.status}): ${bodyText.slice(0, 200)}`;
           throw new Error(msg);
         }
         if (!parsed) {
-          throw new Error("Upload returned invalid JSON");
+          throw new Error(`Upload returned invalid response (${res.status}): ${bodyText.slice(0, 200)}`);
         }
         setStage("extracting");
         setProgress(45);
