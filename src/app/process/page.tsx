@@ -19,73 +19,45 @@ function download(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
-function copyToClipboard(text: string) {
-  if (navigator.clipboard?.writeText) {
-    return navigator.clipboard.writeText(text);
-  }
-  // Fallback for sandboxed/HTTP contexts
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.style.position = "fixed";
-  ta.style.left = "-9999px";
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  try {
-    document.execCommand("copy");
-  } finally {
-    document.body.removeChild(ta);
-  }
-  return Promise.resolve();
-}
-
-// Add: simple RTF generator for .doc downloads
-function downloadDoc(filename: string, text: string) {
-  const rtfEscape = (s: string) => s.replace(/\\/g, "\\\\").replace(/{/g, "\\{").replace(/}/g, "\\}").replace(/\n/g, "\\par ");
-  const rtf = `{\\rtf1\\ansi\\deff0\n{\\fonttbl{\\f0 Times New Roman;}}\n\\fs24 ${rtfEscape(text)}\n}`;
-  const blob = new Blob([rtf], { type: "application/msword" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename.endsWith(".doc") ? filename : `${filename}.doc`;
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
 // Add: lightweight PDF generator using jsPDF (installed)
 async function downloadPdf(filename: string, text: string) {
   try {
     const { jsPDF } = await import("jspdf");
     const doc = new jsPDF();
     
-    // Split text into lines for better fitting
-    const lines = doc.splitTextToSize(text, 180);
-    doc.text(lines, 10, 10);
+    // Add title
+    doc.setFontSize(16);
+    doc.text("Processed Output", 105, 15, { align: "center" });
+    doc.setFontSize(10);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 105, 25, { align: "center" });
     
-    const dataUrl = doc.output('datauristring');
+    // Split text into lines
+    const splitText = doc.splitTextToSize(text, 190);
     
-    // Use window.open to trigger download in restricted environments
-    const popup = window.open(dataUrl, '_blank');
-    if (popup) {
-      // Optionally, set a timeout to close if it's a download prompt
-      setTimeout(() => popup.close(), 1000);
-    } else {
-      // Fallback to link method if popups blocked
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+    let yPosition = 40;
+    for (let i = 0; i < splitText.length; i++) {
+      if (yPosition > 280) {
+        doc.addPage();
+        yPosition = 20;
+      }
+      doc.text(splitText[i], 10, yPosition);
+      yPosition += 7;
     }
+    
+    // Output as blob for download
+    const pdfBlob = doc.output("blob");
+    const url = URL.createObjectURL(pdfBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   } catch (error) {
     console.error("PDF generation failed:", error);
-    // Fallback message or simple text save
-    throw new Error("PDF download unavailable - try TXT or DOC");
+    toast.error("PDF download failed - try TXT or DOC");
+    throw error;
   }
 }
 
@@ -349,7 +321,12 @@ export default function ProcessPage() {
     <main className="min-h-dvh p-6 container mx-auto">
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">Processed Output</h1>
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="sm" asChild>
+              <a href="/">← Back to Home</a>
+            </Button>
+            <h1 className="text-xl font-semibold">Processed Output</h1>
+          </div>
           <div className="flex items-center gap-2">
             <Button
               type="button"
@@ -448,8 +425,13 @@ export default function ProcessPage() {
                   return;
                 }
                 setBusy("pdf");
-                try { await downloadPdf("processed.pdf", processedText); setActionMsg("Saved PDF"); } catch {
+                try { 
+                  await downloadPdf("processed.pdf", processedText); 
+                  setActionMsg("Saved PDF"); 
+                  toast.success("PDF downloaded successfully");
+                } catch (e) {
                   setActionMsg("Download failed");
+                  // Error already toasted in function
                 } finally {
                   setBusy(null);
                   setTimeout(() => setActionMsg(null), 1500);
@@ -568,7 +550,7 @@ export default function ProcessPage() {
           </CardHeader>
           <CardContent>
             {metrics ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm overflow-x-auto pb-2">
                 <div>
                   <div className="text-muted-foreground">Original Length</div>
                   <div className="font-medium">{metrics.originalLength}</div>
