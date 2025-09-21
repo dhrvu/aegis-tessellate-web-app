@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { toast } from "sonner";
 
 function download(filename: string, text: string) {
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
@@ -160,27 +161,28 @@ function buildDiff(aStr: string, bStr: string) {
 }
 
 export default function ProcessPage() {
-  const [payload, setPayload] = useState<any | null>(null);
+  const raw = (() => {
+    const r = sessionStorage.getItem("aegis:last");
+    if (r) {
+      try {
+        return JSON.parse(r);
+      } catch {}
+    }
+    return null;
+  })();
+  const initialPayload = raw;
+  const [payload, setPayload] = useState(initialPayload);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState<null | "txt" | "doc" | "pdf" >(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [showChanges, setShowChanges] = useState(false);
   const [syncScroll, setSyncScroll] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialPayload);
   const leftRef = useRef<HTMLDivElement | null>(null);
   const rightRef = useRef<HTMLDivElement | null>(null);
   const syncingRef = useRef<null | "left" | "right">(null);
 
-  useEffect(() => {
-    const raw = sessionStorage.getItem("aegis:last");
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        setPayload(parsed);
-      } catch {}
-    }
-    setLoading(false);
-  }, []);
+  // No useEffect needed for loading payload
 
   const originalText = payload?.originalText || "";
   const processedText = payload?.processedText || "";
@@ -189,19 +191,46 @@ export default function ProcessPage() {
   const provenance = payload?.provenance || null;
   const trust = payload?.trust || null;
 
+  // Updated copy function
+  const copyToClipboard = useCallback(async (text: string) => {
+    if (!text) return false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {}
+    // Enhanced fallback: select text and use execCommand
+    try {
+      selectProcessed();
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const success = document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (success) return true;
+    } catch {}
+    return false;
+  }, []);
+
   // Keyboard shortcuts: ⌘/Ctrl+C (copy), ⌘/Ctrl+⇧+T/D/P (downloads)
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const isMeta = e.metaKey || e.ctrlKey;
     if (!isMeta) return;
-    // Copy: Cmd/Ctrl + C
     if (!e.shiftKey && (e.key === "c" || e.key === "C")) {
       e.preventDefault();
-      copyToClipboard(processedText)
-        .then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        })
-        .catch(() => {});
+      const success = copyToClipboard(processedText);
+      if (success) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      } else {
+        selectProcessed();
+        toast("Text selected - press Cmd/Ctrl+C to copy");
+      }
       return;
     }
     // Downloads with Shift
@@ -231,7 +260,7 @@ export default function ProcessPage() {
         })();
       }
     }
-  }, [processedText]);
+  }, [processedText, copyToClipboard]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -330,13 +359,15 @@ export default function ProcessPage() {
                   setTimeout(() => setActionMsg(null), 1500);
                   return;
                 }
-                try {
-                  await copyToClipboard(processedText);
+                const success = await copyToClipboard(processedText);
+                if (success) {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1500);
-                } catch {
-                  setActionMsg("Copy failed");
-                  setTimeout(() => setActionMsg(null), 1500);
+                } else {
+                  selectProcessed();
+                  toast("Copy blocked - text selected, press Cmd/Ctrl+C manually");
+                  setActionMsg("Manual copy needed");
+                  setTimeout(() => setActionMsg(null), 2000);
                 }
               }}
               aria-label="Copy processed text"
