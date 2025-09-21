@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
-import pdf from "pdf-parse";
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf";
 
 export const runtime = "nodejs"; // ensure Node APIs
+
+pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5MB
 
@@ -22,10 +24,21 @@ export async function POST(req: Request) {
     }
 
     const ab = await file.arrayBuffer();
-    const buf = Buffer.from(ab);
+    const buf = new Uint8Array(ab);
 
-    const data = await pdf(buf);
-    const rawText = (data.text || "").trim();
+    const document = await pdfjs.getDocument({ data: buf }).promise;
+    let fullText = "";
+
+    for (let i = 1; i <= document.numPages; i++) {
+      const page = await document.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items
+        .map((item: any) => item.str)
+        .join(" ");
+      fullText += pageText + "\n";
+    }
+
+    const rawText = fullText.trim();
 
     if (!rawText) {
       return NextResponse.json({ error: "No extractable text in PDF." }, { status: 422 });
@@ -36,8 +49,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       text,
       meta: {
-        pages: data.numpages,
-        info: data.info || null,
+        pages: document.numPages,
         size: file.size,
         name: file.name,
       },
