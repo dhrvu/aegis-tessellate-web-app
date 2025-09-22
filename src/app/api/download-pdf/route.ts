@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
 
+export const runtime = "nodejs";
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -26,7 +28,13 @@ export async function POST(request: NextRequest) {
       doc.end();
     });
 
-    return new NextResponse(new Uint8Array(pdfBuffer), {
+    // Convert Buffer to an exact ArrayBuffer slice for Web Response compatibility
+    const arrayBuffer = pdfBuffer.buffer.slice(
+      pdfBuffer.byteOffset,
+      pdfBuffer.byteOffset + pdfBuffer.byteLength
+    );
+
+    return new NextResponse(arrayBuffer, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
